@@ -19,7 +19,9 @@ Estrategia (enumerar vs clasificar):
     estado "sin_categoria" (antes se perdía).
 
 Notas de diseño:
-  - El SKU es el último segmento de la URL /product/{SKU}.
+  - El SKU es el path tras /product/ en la URL. PUEDE incluir barras
+    (p. ej. "CORNIZ7/1", "ESCUAKC/A"); el propio sitio lo reporta así en el
+    campo "Código". Por eso no se corta en la primera "/".
   - El nombre sale del atributo title= de la tarjeta del listado (no hace falta
     abrir cada ficha).
   - La clasificación de cada producto = las rutas /shop/... bajo las que aparece.
@@ -106,7 +108,10 @@ RE_SHOP_LINK = re.compile(
 )
 # Anclas de tarjeta de producto en el listado: <a ... class="product-image">
 RE_PRODUCT_ANCHOR = re.compile(r'<a\b[^>]*class="product-image"[^>]*>', re.I)
-RE_SKU_IN_HREF = re.compile(r'/product/([^"/?#]+)', re.I)
+# El SKU puede incluir barras (p. ej. "CORNIZ7/1", "ESCUAKC/A"): el propio
+# sitio lo reporta así en el campo "Código". Capturamos el path completo tras
+# /product/ hasta la comilla/query/hash (sin cortar en la primera "/").
+RE_SKU_IN_HREF = re.compile(r'/product/([^"?#]+)', re.I)
 RE_TITLE_ATTR = re.compile(r'title="([^"]*)"', re.I)
 RE_TAGS = re.compile(r"<[^>]+>")
 
@@ -154,7 +159,7 @@ def productos_en_pagina(htmltext):
         msku = RE_SKU_IN_HREF.search(tag)
         if not msku:
             continue
-        sku = msku.group(1)
+        sku = msku.group(1).rstrip("/")
         mtit = RE_TITLE_ATTR.search(tag)
         nombre = limpiar(mtit.group(1)) if mtit else ""
         out.append((sku, nombre))
