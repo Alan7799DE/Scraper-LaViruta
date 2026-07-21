@@ -25,12 +25,21 @@ subcategoría / sub-subcategoría).
 
 ### Criterios de scraping
 
-- **Fuente de verdad = el scrapeo del árbol de categorías.** No se usa el
-  `sitemap.xml` (no se confía en su completitud ni en cómo se genera).
+- **Fuente de verdad = el scrapeo del sitio.** No se usa el `sitemap.xml`
+  (no se confía en su completitud ni en cómo se genera; además está incompleto).
+- **Enumeración (maestra):** el listado general `/shop` (sin filtro de
+  categoría) lista **todos** los productos publicados, tengan o no categoría.
+- **Clasificación:** se recorren además las categorías/subcategorías para
+  asignarle a cada SKU su categoría/subcategoría.
+- Un producto presente en `/shop` pero en ninguna categoría queda con estado
+  **`sin_categoria`** (no se pierde).
 - **Recorrido robusto:** iterar `page=N` hasta que una página no devuelva
   productos. El botón «siguiente» no es confiable como señal de fin.
-- Un producto que no esté en ninguna categoría **no aparece** en el listado
-  (no es alcanzable por navegación). Es intencional.
+- **Dedup de alias:** el sitio expone alias internos de 6 letras (p. ej.
+  `abertu` == `aberturas`) que devuelven el mismo contenido con otra etiqueta.
+  Se agrupan las rutas por su conjunto de SKU y se conserva la canónica, así no
+  se duplican filas ni etiquetas. Las rutas sin gemelo (categorías reales que no
+  están en el menú, como `Placas` o `Herramientas`) se conservan.
 
 ## Uso
 

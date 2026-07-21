@@ -7,12 +7,18 @@ Recorre TODO el árbol de categorías y subcategorías del e-commerce y arma un
 listado de productos con: SKU, nombre y su clasificación (categoría /
 subcategoría / sub-subcategoría).
 
-FUENTE DE VERDAD: lo que se scrapea recorriendo el árbol de categorías.
-NO usa el sitemap.xml (no se confía en él).
+FUENTE DE VERDAD: lo que se scrapea del sitio. NO usa el sitemap.xml.
+
+Estrategia (enumerar vs clasificar):
+  - ENUMERACIÓN (maestra): el listado general /shop (sin filtro de categoría)
+    lista TODOS los productos publicados, tengan o no categoría. De ahí sale
+    el universo completo de SKU.
+  - CLASIFICACIÓN: se recorren además las categorías/subcategorías para
+    asignarle a cada SKU su categoría/subcategoría.
+  - Un producto que aparece en /shop pero en ninguna categoría queda con
+    estado "sin_categoria" (antes se perdía).
 
 Notas de diseño:
-  - Un producto que NO esté en ninguna categoría no aparecerá en el listado:
-    es esperable, porque solo consideramos lo alcanzable por navegación.
   - El SKU es el último segmento de la URL /product/{SKU}.
   - El nombre sale del atributo title= de la tarjeta del listado (no hace falta
     abrir cada ficha).
@@ -152,13 +158,17 @@ def productos_en_pagina(htmltext):
 
 def recorrer_ruta(ruta):
     """
-    Recorre una categoría/subcategoría paginando hasta agotarla.
+    Recorre una ruta de listado paginando hasta agotarla.
+    Si `ruta` es "" recorre el listado GENERAL /shop (sin filtro de categoría),
+    que es la fuente maestra de TODOS los productos publicados (con o sin
+    categoría). Si `ruta` es una categoría/subcategoría, recorre ese filtro.
     Devuelve (ruta, [(sku, nombre), ...]) sin deduplicar.
     """
+    base = f"{BASE}/shop" if not ruta else f"{BASE}/shop/{ruta}"
     encontrados = []
     page = 1
     while page <= MAX_PAGES:
-        url = f"{BASE}/shop/{ruta}?per_page={PER_PAGE}&page={page}"
+        url = f"{base}?per_page={PER_PAGE}&page={page}"
         prods = productos_en_pagina(fetch(url))
         if not prods:
             break
@@ -180,14 +190,19 @@ def main():
         sys.exit(1)
 
     # productos[sku] = {"nombre": str, "rutas": set()}
+    # La ruta "" (listado general /shop) es la fuente MAESTRA de enumeración:
+    # captura todos los productos publicados, tengan o no categoría. Las demás
+    # rutas (categorías/subcategorías) solo sirven para CLASIFICAR.
     productos = {}
     lock = threading.Lock()
 
-    print(f"→ Recorriendo {len(rutas)} rutas con {WORKERS} hilos "
-          f"(per_page={PER_PAGE})…")
+    rutas_skus = {}  # ruta_categoria -> set(sku) — para deduplicar alias
+    tareas = [""] + rutas  # "" = listado general (maestra) + categorías
+    print(f"→ Recorriendo el listado general + {len(rutas)} rutas de categoría "
+          f"con {WORKERS} hilos (per_page={PER_PAGE})…")
     completadas = 0
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
-        futuros = {ex.submit(recorrer_ruta, r): r for r in rutas}
+        futuros = {ex.submit(recorrer_ruta, r): r for r in tareas}
         for fut in as_completed(futuros):
             ruta, prods = fut.result()
             with lock:
@@ -195,11 +210,32 @@ def main():
                     reg = productos.setdefault(sku, {"nombre": "", "rutas": set()})
                     if nombre and not reg["nombre"]:
                         reg["nombre"] = nombre
-                    reg["rutas"].add(ruta)
+                    if ruta:  # solo las categorías clasifican; "" no es categoría
+                        reg["rutas"].add(ruta)
+                        rutas_skus.setdefault(ruta, set()).add(sku)
             completadas += 1
-            print(f"  [{completadas}/{len(rutas)}] {ruta}: {len(prods)} productos")
+            etiqueta = "(listado general)" if not ruta else ruta
+            print(f"  [{completadas}/{len(tareas)}] {etiqueta}: {len(prods)} productos")
 
     print(f"→ Total de SKU únicos: {len(productos)}")
+
+    # ---- Deduplicar rutas alias -------------------------------------------- #
+    # El sitio expone alias de 6 letras (p. ej. 'abertu' == 'aberturas') que
+    # devuelven el MISMO conjunto de productos con una etiqueta de distinto
+    # casing. Agrupamos rutas por su conjunto de SKU y nos quedamos con la
+    # canónica (slug más largo / con guion). Las rutas sin gemelo (categorías
+    # reales que no están en el menú, como 'placas' o 'ferret') se conservan.
+    from collections import defaultdict
+    grupos = defaultdict(list)
+    for r, skus in rutas_skus.items():
+        grupos[frozenset(skus)].append(r)
+    rutas_validas = set()
+    for _, rs in grupos.items():
+        canonica = max(rs, key=lambda r: (len(r), "-" in r))
+        rutas_validas.add(canonica)
+    descartadas = len(rutas_skus) - len(rutas_validas)
+    if descartadas:
+        print(f"→ Rutas alias descartadas (mismo contenido): {descartadas}")
 
     # ---- Clasificación por producto ---------------------------------------- #
     def nombre_cat(slug):
@@ -220,7 +256,8 @@ def main():
     for sku in sorted(productos):
         reg = productos[sku]
         nombre = reg["nombre"]
-        rutas_sku = sorted(reg["rutas"])
+        # Solo rutas canónicas (descarta alias que duplicaban la clasificación).
+        rutas_sku = sorted(r for r in reg["rutas"] if r in rutas_validas)
 
         # Agrupar por categoría de nivel 1 para detectar "sueltos".
         por_cat = {}
@@ -234,7 +271,12 @@ def main():
 
         categorias = sorted({nombre_cat(r.split("/")[0]) for r in clasifs})
         subcats = sorted({desglosar(r)[1] for r in clasifs if "/" in r})
-        estado = "clasificado" if subcats else "suelto"
+        if not clasifs:
+            estado = "sin_categoria"   # está en el listado general pero en ninguna categoría
+        elif subcats:
+            estado = "clasificado"
+        else:
+            estado = "suelto"          # en una categoría pero sin subcategoría
 
         filas_wide.append({
             "sku": sku,
@@ -245,6 +287,13 @@ def main():
             "estado": estado,
         })
 
+        if not clasifs:
+            # Producto sin categoría: igual va al detalle largo, con clasificación vacía.
+            filas_long.append({
+                "sku": sku, "nombre": nombre, "categoria": "",
+                "subcategoria": "", "sub_subcategoria": "", "ruta": "",
+                "estado": "sin_categoria",
+            })
         for r in clasifs:
             cat, sub, subsub = desglosar(r)
             filas_long.append({
@@ -288,13 +337,16 @@ def main():
         json.dump(detalle, f, ensure_ascii=False, indent=2)
 
     # ---- Resumen ----------------------------------------------------------- #
+    clasificados = sum(1 for d in detalle.values() if d["estado"] == "clasificado")
     sueltos = sum(1 for d in detalle.values() if d["estado"] == "suelto")
+    sin_cat = sum(1 for d in detalle.values() if d["estado"] == "sin_categoria")
     print("\n=========== RESUMEN ===========")
-    print(f"SKU únicos             : {len(detalle)}")
-    print(f"Con subcategoría       : {len(detalle) - sueltos}")
-    print(f"Sueltos (solo categoría): {sueltos}")
-    print(f"Categorías nivel 1     : {len([r for r in rutas if '/' not in r])}")
-    print(f"Subcategorías          : {len([r for r in rutas if '/' in r])}")
+    print(f"SKU únicos (total)       : {len(detalle)}")
+    print(f"Clasificados (con subcat): {clasificados}")
+    print(f"Sueltos (solo categoría) : {sueltos}")
+    print(f"Sin categoría            : {sin_cat}")
+    print(f"Categorías nivel 1       : {len([r for r in rutas_validas if '/' not in r])}")
+    print(f"Subcategorías            : {len([r for r in rutas_validas if '/' in r])}")
     print(f"\nArchivos generados en: {DIR_SALIDA}")
     print("  - productos.csv")
     print("  - productos_clasificaciones.csv")
