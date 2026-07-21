@@ -1,0 +1,28 @@
+# macOS
+.DS_Store
+
+# Entornos / secretos
+.env
+.env.*
+*.local
+
+# Python (por si el stack termina siendo Python)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Node (por si el stack termina siendo Node)
+node_modules/
+dist/
+build/
+npm-debug.log*
+yarn-error.log*
+
+# Datos scrapeados / salidas
+data/
+output/
+*.log

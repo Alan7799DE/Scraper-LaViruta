@@ -1,0 +1,5 @@
+{
+  "version": "0.0.1",
+  "_comment": "Sin configuraciones de arranque todavía. El stack del scraper está por definir; cuando lo decidamos (p. ej. Python, Node) se agrega aquí el comando correspondiente.",
+  "configurations": []
+}
