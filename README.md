@@ -1,92 +1,119 @@
-# Scraper La Viruta
+# La Viruta Scraper
 
-Scraper del catálogo online de **Maderas La Viruta** — <https://laviruta.com/>.
+A catalog scraper for **Maderas La Viruta** — <https://laviruta.com/>.
 
-Extrae, recorriendo el árbol de categorías del e-commerce, un listado de
-productos con su **SKU**, **nombre** y **clasificación** (categoría /
-subcategoría / sub-subcategoría).
+It walks the online store and produces a complete list of products with their
+**SKU**, **name**, **category/subcategory classification**, and **description**.
 
-## Estado
+## Why
 
-- **Fase:** relevamiento del catálogo.
-- **Script disponible:** [`scripts/relevar_catalogo.py`](scripts/relevar_catalogo.py)
-  — genera el índice completo de productos y su clasificación.
+The goal is to **audit and improve the product descriptions**. Many products in
+the store have weak or missing descriptions (in practice, a large share only
+repeat the product name). To fix that at scale you first need the full picture:
+every SKU, its current name, its current description, and where it sits in the
+catalog. This scraper builds exactly that dataset so the descriptions can be
+reviewed and rewritten systematically.
 
-## Cómo funciona el sitio (relevado)
+## What it extracts
 
-| Aspecto | Detalle |
+For every published product:
+
+| Field | Source |
 |---|---|
-| Plataforma | Laravel / PHP 8.2 sobre Apache |
-| Árbol | 21 categorías · 157 subcategorías · 3 rutas de nivel 3 (`aberturas/puertas/*`) |
-| Paginación | Clásica (botones 1, 2, 3, `»`). **No** hay scroll infinito ni AJAX |
-| URL de listado | `shop/{categoria}[/{subcategoria}]?per_page=N&page=N` (`per_page` acepta 12 / 24 / 36) |
-| SKU | Path tras `/product/` en `laviruta.com/product/{SKU}`. Puede incluir barras (p. ej. `CORNIZ7/1`, `ESCUAKC/A`) — el sitio lo reporta así en «Código» |
-| Nombre | Atributo `title=` de la tarjeta del listado (no hace falta abrir la ficha) |
+| `sku` | Path after `/product/` in the product URL |
+| `nombre` (name) | `title=` attribute of the product card |
+| `categorias` / `subcategorias` | The category/subcategory routes the product appears under |
+| `descripcion` (description) | Text of the "Descripción del Producto" tab on the product page |
+| `estado` | `clasificado` / `suelto` (in a category, no subcategory) / `sin_categoria` |
 
-### Criterios de scraping
+## How the site works (as observed)
 
-- **Fuente de verdad = el scrapeo del sitio.** No se usa el `sitemap.xml`
-  (no se confía en su completitud ni en cómo se genera; además está incompleto).
-- **Enumeración (maestra):** el listado general `/shop` (sin filtro de
-  categoría) lista **todos** los productos publicados, tengan o no categoría.
-- **Clasificación:** se recorren además las categorías/subcategorías para
-  asignarle a cada SKU su categoría/subcategoría.
-- Un producto presente en `/shop` pero en ninguna categoría queda con estado
-  **`sin_categoria`** (no se pierde).
-- **Recorrido robusto:** iterar `page=N` hasta que una página no devuelva
-  productos. El botón «siguiente» no es confiable como señal de fin.
-- **Dedup de alias:** el sitio expone alias internos de 6 letras (p. ej.
-  `abertu` == `aberturas`) que devuelven el mismo contenido con otra etiqueta.
-  Se agrupan las rutas por su conjunto de SKU y se conserva la canónica, así no
-  se duplican filas ni etiquetas. Las rutas sin gemelo (categorías reales que no
-  están en el menú, como `Placas` o `Herramientas`) se conservan.
+| Aspect | Detail |
+|---|---|
+| Platform | Laravel / PHP 8.2 on Apache |
+| Catalog tree | ~21 categories · ~157 subcategories · a few level-3 routes |
+| Pagination | Classic numbered pages (1, 2, 3, `»`). **No** infinite scroll, **no** AJAX |
+| Listing URL | `shop/{category}[/{subcategory}]?per_page=N&page=N` (`per_page` accepts 12 / 24 / 36) |
+| SKU | Path after `/product/`. **May contain slashes** (e.g. `CORNIZ7/1`, `ESCUAKC/A`) — the site reports it that way in the "Código" field |
+| Name | `title=` attribute of the product card (no need to open the page) |
+| Description | `#product_tabs_description` tab → `<div class="std">` on the product page |
 
-## Uso
+## Scraping strategy
 
-Requiere **Python 3.8+** y solo biblioteca estándar (no hay que instalar nada).
+- **Source of truth = the scrape itself.** The `sitemap.xml` is *not* used (it is
+  incomplete and its generation can't be relied on).
+- **Enumeration (master list):** the general `/shop` listing (no category filter)
+  lists **every** published product, whether or not it has a category. This is
+  what guarantees completeness.
+- **Classification:** categories/subcategories are crawled only to *label* each
+  SKU. A product that appears in `/shop` but under no category is marked
+  `sin_categoria` (instead of being lost).
+- **Robust pagination:** iterate `page=N` until a page returns no products. The
+  «next» button is not a reliable end-of-list signal.
+- **Alias de-duplication:** the site exposes internal 6-letter aliases (e.g.
+  `abertu` == `aberturas`) that return the same products with a differently-cased
+  label. Routes are grouped by their SKU set and only the canonical one is kept,
+  so rows and labels aren't duplicated. Real categories without a twin (e.g.
+  `Placas`, `Herramientas`) are preserved.
+
+## Usage
+
+Requires **Python 3.8+** and the standard library only — nothing to install.
 
 ```bash
 python3 scripts/relevar_catalogo.py
 ```
 
-### Salidas (siempre en la carpeta del proyecto, sin importar desde dónde se ejecute)
+A full run opens every product page for the descriptions and takes a few minutes.
+Set `TRAER_DESCRIPCION = False` to skip descriptions for a much faster run.
 
-| Archivo | Contenido |
+### Outputs (written to the project folder, regardless of where you run it)
+
+| File | Contents |
 |---|---|
-| `productos.csv` | 1 fila por SKU: `sku, nombre, categorias, subcategorias, n_clasificaciones, estado, descripcion` |
-| `productos_clasificaciones.csv` | Formato largo: 1 fila por `(SKU, categoría, subcategoría, sub-subcategoría, ruta)` |
-| `productos.json` | Detalle completo por SKU |
+| `productos.csv` | One row per SKU: `sku, nombre, categorias, subcategorias, n_clasificaciones, estado, descripcion` |
+| `productos_clasificaciones.csv` | Long format: one row per `(SKU, category, subcategory, sub-subcategory, route)` |
+| `productos.json` | Full detail per SKU |
 
-La columna **`descripcion`** sale de abrir la ficha `/product/{SKU}` y leer la
-solapa «Descripción del Producto». Cuando el producto no tiene descripción real,
-esa solapa muestra el nombre (se deja tal cual). Se puede desactivar con
-`TRAER_DESCRIPCION = False` (bastante más rápido, no abre las fichas).
+CSV files are written as `utf-8-sig` so Excel renders accents correctly.
 
-Los CSV se escriben en `utf-8-sig` para que Excel muestre bien los acentos.
+### Configuration
 
-### Configuración
-
-Editable al principio de [`scripts/relevar_catalogo.py`](scripts/relevar_catalogo.py):
+At the top of [`scripts/relevar_catalogo.py`](scripts/relevar_catalogo.py):
 `PER_PAGE`, `WORKERS`, `MAX_PAGES`, `TIMEOUT`, `RETRIES`, `PAUSE`,
 `TRAER_DESCRIPCION`.
 
-> **Nota TLS:** el certificado de `laviruta.com` tiene la cadena incompleta
-> (falta el intermedio). El script desactiva la verificación TLS por ese
-> motivo; es aceptable porque es el servidor propio.
+> **TLS note:** the `laviruta.com` certificate ships an incomplete chain (missing
+> intermediate). The script disables TLS verification for that reason; it's
+> acceptable here because it targets the store's own server.
 
-## Estructura
+## Description audit — what the data shows
+
+In a recent full run (~1,933 products), the descriptions broke down roughly as:
+
+- **~811** products with a **real** description (different from the name).
+- **~1,090** products whose description **only repeats the product name** — these
+  are the primary targets for rewriting.
+- **~25** with no description at all.
+
+Products in the last two groups are trivial to filter (description empty, or
+equal to `nombre`), which makes `productos.csv` a ready-made worklist for the
+description review.
+
+## Project structure
 
 ```
 .
 ├── README.md
-├── CLAUDE.md                     # Contexto y convenciones del proyecto
+├── CLAUDE.md                     # Project context and conventions
 ├── scripts/
-│   └── relevar_catalogo.py       # Scraper de índice del catálogo
-└── .claude/                      # Configuración de Claude Code (skills, hooks)
+│   └── relevar_catalogo.py       # Catalog index scraper
+└── .claude/                      # Claude Code configuration (skills, hooks)
 ```
 
-## Convenciones
+## Conventions
 
-- Código versionado en GitHub (rama `main`), cambios vía Pull Request.
-- Scraping responsable: aunque es el servidor propio y no hay límite de
-  requests, mantener el código prolijo y sin paralelismo desmedido.
+- Code is versioned on GitHub (`main` branch); changes go through Pull Requests.
+- Scraped outputs (`productos.*`) are git-ignored.
+- Responsible scraping: even though it targets the store's own server with no
+  request limit, the code stays tidy and avoids excessive parallelism.
