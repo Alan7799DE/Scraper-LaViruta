@@ -53,16 +53,22 @@ python3 scripts/relevar_catalogo.py
 
 | Archivo | Contenido |
 |---|---|
-| `productos.csv` | 1 fila por SKU: `sku, nombre, categorias, subcategorias, n_clasificaciones, estado` |
+| `productos.csv` | 1 fila por SKU: `sku, nombre, categorias, subcategorias, n_clasificaciones, estado, descripcion` |
 | `productos_clasificaciones.csv` | Formato largo: 1 fila por `(SKU, categoría, subcategoría, sub-subcategoría, ruta)` |
 | `productos.json` | Detalle completo por SKU |
+
+La columna **`descripcion`** sale de abrir la ficha `/product/{SKU}` y leer la
+solapa «Descripción del Producto». Cuando el producto no tiene descripción real,
+esa solapa muestra el nombre (se deja tal cual). Se puede desactivar con
+`TRAER_DESCRIPCION = False` (bastante más rápido, no abre las fichas).
 
 Los CSV se escriben en `utf-8-sig` para que Excel muestre bien los acentos.
 
 ### Configuración
 
 Editable al principio de [`scripts/relevar_catalogo.py`](scripts/relevar_catalogo.py):
-`PER_PAGE`, `WORKERS`, `MAX_PAGES`, `TIMEOUT`, `RETRIES`, `PAUSE`.
+`PER_PAGE`, `WORKERS`, `MAX_PAGES`, `TIMEOUT`, `RETRIES`, `PAUSE`,
+`TRAER_DESCRIPCION`.
 
 > **Nota TLS:** el certificado de `laviruta.com` tiene la cadena incompleta
 > (falta el intermedio). El script desactiva la verificación TLS por ese
