@@ -25,14 +25,18 @@ Notas de diseño:
   - La clasificación de cada producto = las rutas /shop/... bajo las que aparece.
   - Paginación: ?per_page=36&page=N, iterando hasta que una página no traiga
     productos (el botón "siguiente" NO es confiable como señal de fin).
+  - Descripción: se abre la ficha /product/{SKU} y se extrae el texto de la
+    solapa "Descripción del Producto". Cuando el sitio no tiene descripción
+    real, esa solapa muestra el nombre del producto (se deja tal cual).
+    Se puede desactivar con TRAER_DESCRIPCION = False (mucho más rápido).
 
 Requisitos: Python 3.8+ y biblioteca estándar. NO hay que instalar nada.
 
 Uso:
     python3 relevar_catalogo.py
 
-Salidas (en el directorio actual):
-    productos.csv                  -> 1 fila por SKU (clasificación agregada)
+Salidas (en la carpeta del proyecto):
+    productos.csv                  -> 1 fila por SKU (clasificación + descripción)
     productos_clasificaciones.csv  -> formato largo: 1 fila por (SKU, clasificación)
     productos.json                 -> detalle completo por SKU
 """
@@ -65,6 +69,7 @@ MAX_PAGES = 100         # corte de seguridad por categoría
 TIMEOUT = 30            # segundos por request
 RETRIES = 3             # reintentos ante error de red
 PAUSE = 0.0            # pausa entre requests dentro de un mismo hilo (seg)
+TRAER_DESCRIPCION = True  # abrir la ficha de cada producto para extraer su descripción
 USER_AGENT = "LaVirutaCatalogScraper/1.0 (relevamiento interno)"
 
 # El certificado de laviruta.com tiene la cadena incompleta (falta el
@@ -156,6 +161,54 @@ def productos_en_pagina(htmltext):
     return out
 
 
+RE_H2 = re.compile(r"<h2\b[^>]*>.*?</h2>", re.S | re.I)
+RE_BR = re.compile(r"(?i)<br[^>]*>")
+
+
+def _contenido_div(htmltext, start):
+    """Dado el índice de un '<div', devuelve (inicio, fin) de su contenido
+    interno, respetando el anidamiento de <div>."""
+    fin_apertura = htmltext.find(">", start)
+    depth = 1
+    i = fin_apertura + 1
+    cierre = -1
+    while i < len(htmltext) and depth > 0:
+        prox = htmltext.find("<div", i)
+        cierre = htmltext.find("</div", i)
+        if cierre == -1:
+            break
+        if prox != -1 and prox < cierre:
+            depth += 1
+            i = prox + 4
+        else:
+            depth -= 1
+            i = cierre + 5
+    return fin_apertura + 1, cierre
+
+
+def extraer_descripcion(htmltext):
+    """Extrae el texto de la solapa 'Descripción del Producto' de una ficha.
+    Devuelve "" si no hay solapa de descripción."""
+    i = htmltext.find('id="product_tabs_description')
+    if i == -1:
+        return ""
+    lim = htmltext.find('id="product_tabs', i + 10)   # inicio de la solapa siguiente
+    std = htmltext.find('<div class="std"', i)
+    if std == -1 or (lim != -1 and std > lim):
+        return ""
+    cs, ce = _contenido_div(htmltext, std)
+    bloque = htmltext[cs:ce if ce != -1 else cs]
+    bloque = RE_H2.sub(" ", bloque)      # quitar encabezados de la solapa
+    bloque = RE_BR.sub(" ", bloque)      # <br> -> espacio
+    texto = html.unescape(RE_TAGS.sub(" ", bloque))
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def descripcion_de_producto(sku):
+    """Descarga la ficha del producto y devuelve (sku, descripción)."""
+    return sku, extraer_descripcion(fetch(f"{BASE}/product/{sku}"))
+
+
 def recorrer_ruta(ruta):
     """
     Recorre una ruta de listado paginando hasta agotarla.
@@ -237,6 +290,22 @@ def main():
     if descartadas:
         print(f"→ Rutas alias descartadas (mismo contenido): {descartadas}")
 
+    # ---- Descripciones (abre la ficha de cada producto) -------------------- #
+    descripciones = {}
+    if TRAER_DESCRIPCION:
+        skus_todos = sorted(productos)
+        print(f"→ Extrayendo descripción de {len(skus_todos)} fichas "
+              f"con {WORKERS} hilos…")
+        hechas = 0
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            for sku, desc in ex.map(descripcion_de_producto, skus_todos):
+                descripciones[sku] = desc
+                hechas += 1
+                if hechas % 200 == 0:
+                    print(f"  {hechas}/{len(skus_todos)} fichas")
+        con_desc = sum(1 for d in descripciones.values() if d)
+        print(f"  Descripciones no vacías: {con_desc}/{len(skus_todos)}")
+
     # ---- Clasificación por producto ---------------------------------------- #
     def nombre_cat(slug):
         return etiquetas.get(slug, slug)
@@ -256,6 +325,7 @@ def main():
     for sku in sorted(productos):
         reg = productos[sku]
         nombre = reg["nombre"]
+        descripcion = descripciones.get(sku, "")
         # Solo rutas canónicas (descarta alias que duplicaban la clasificación).
         rutas_sku = sorted(r for r in reg["rutas"] if r in rutas_validas)
 
@@ -285,6 +355,7 @@ def main():
             "subcategorias": " | ".join(subcats),
             "n_clasificaciones": len(clasifs),
             "estado": estado,
+            "descripcion": descripcion,
         })
 
         if not clasifs:
@@ -312,6 +383,7 @@ def main():
             "subcategorias": subcats,
             "rutas": clasifs,
             "estado": estado,
+            "descripcion": descripcion,
         }
 
     # ---- Escribir salidas (siempre en la carpeta del proyecto) ------------- #
@@ -322,7 +394,7 @@ def main():
     with open(ruta_wide, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=[
             "sku", "nombre", "categorias", "subcategorias",
-            "n_clasificaciones", "estado"])
+            "n_clasificaciones", "estado", "descripcion"])
         w.writeheader()
         w.writerows(filas_wide)
 
