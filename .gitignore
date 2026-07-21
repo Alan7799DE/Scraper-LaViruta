@@ -26,3 +26,6 @@ yarn-error.log*
 data/
 output/
 *.log
+productos.csv
+productos_clasificaciones.csv
+productos.json
