@@ -20,7 +20,7 @@ subcategoría / sub-subcategoría).
 | Árbol | 21 categorías · 157 subcategorías · 3 rutas de nivel 3 (`aberturas/puertas/*`) |
 | Paginación | Clásica (botones 1, 2, 3, `»`). **No** hay scroll infinito ni AJAX |
 | URL de listado | `shop/{categoria}[/{subcategoria}]?per_page=N&page=N` (`per_page` acepta 12 / 24 / 36) |
-| SKU | Último segmento de la URL de producto: `laviruta.com/product/{SKU}` |
+| SKU | Path tras `/product/` en `laviruta.com/product/{SKU}`. Puede incluir barras (p. ej. `CORNIZ7/1`, `ESCUAKC/A`) — el sitio lo reporta así en «Código» |
 | Nombre | Atributo `title=` de la tarjeta del listado (no hace falta abrir la ficha) |
 
 ### Criterios de scraping
