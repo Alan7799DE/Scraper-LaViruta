@@ -40,7 +40,7 @@ Requiere **Python 3.8+** y solo biblioteca estándar (no hay que instalar nada).
 python3 scripts/relevar_catalogo.py
 ```
 
-### Salidas (en el directorio donde se ejecuta)
+### Salidas (siempre en la carpeta del proyecto, sin importar desde dónde se ejecute)
 
 | Archivo | Contenido |
 |---|---|

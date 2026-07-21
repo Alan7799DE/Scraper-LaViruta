@@ -34,6 +34,7 @@ Salidas (en el directorio actual):
 import csv
 import html
 import json
+import os
 import re
 import ssl
 import sys
@@ -42,6 +43,11 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
+
+# Carpeta del proyecto (raíz), independiente de desde dónde se ejecute el
+# script. El script vive en scripts/, así que la raíz es su carpeta padre.
+# Ahí se dejan siempre los archivos de salida.
+DIR_SALIDA = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # --------------------------------------------------------------------------- #
 # Configuración
@@ -259,22 +265,26 @@ def main():
             "estado": estado,
         }
 
-    # ---- Escribir salidas -------------------------------------------------- #
-    with open("productos.csv", "w", newline="", encoding="utf-8-sig") as f:
+    # ---- Escribir salidas (siempre en la carpeta del proyecto) ------------- #
+    ruta_wide = os.path.join(DIR_SALIDA, "productos.csv")
+    ruta_long = os.path.join(DIR_SALIDA, "productos_clasificaciones.csv")
+    ruta_json = os.path.join(DIR_SALIDA, "productos.json")
+
+    with open(ruta_wide, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=[
             "sku", "nombre", "categorias", "subcategorias",
             "n_clasificaciones", "estado"])
         w.writeheader()
         w.writerows(filas_wide)
 
-    with open("productos_clasificaciones.csv", "w", newline="", encoding="utf-8-sig") as f:
+    with open(ruta_long, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.DictWriter(f, fieldnames=[
             "sku", "nombre", "categoria", "subcategoria",
             "sub_subcategoria", "ruta", "estado"])
         w.writeheader()
         w.writerows(filas_long)
 
-    with open("productos.json", "w", encoding="utf-8") as f:
+    with open(ruta_json, "w", encoding="utf-8") as f:
         json.dump(detalle, f, ensure_ascii=False, indent=2)
 
     # ---- Resumen ----------------------------------------------------------- #
@@ -285,7 +295,7 @@ def main():
     print(f"Sueltos (solo categoría): {sueltos}")
     print(f"Categorías nivel 1     : {len([r for r in rutas if '/' not in r])}")
     print(f"Subcategorías          : {len([r for r in rutas if '/' in r])}")
-    print("\nArchivos generados:")
+    print(f"\nArchivos generados en: {DIR_SALIDA}")
     print("  - productos.csv")
     print("  - productos_clasificaciones.csv")
     print("  - productos.json")
