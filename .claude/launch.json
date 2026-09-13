@@ -1,5 +1,11 @@
 {
   "version": "0.0.1",
-  "_comment": "Sin configuraciones de arranque todavía. El stack del scraper está por definir; cuando lo decidamos (p. ej. Python, Node) se agrega aquí el comando correspondiente.",
-  "configurations": []
+  "_comment": "Scraper CLI en Python (solo biblioteca estándar). No es un servidor: no expone puerto.",
+  "configurations": [
+    {
+      "name": "relevar-catalogo",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["scripts/relevar_catalogo.py"]
+    }
+  ]
 }
